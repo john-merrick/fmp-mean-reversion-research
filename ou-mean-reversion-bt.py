@@ -53,7 +53,7 @@ console = Console()
 # [SECTION 2]  Constants & Config Dataclass
 # ══════════════════════════════════════════════════════════════════════════════
 
-FMP_BASE_URL      = "https://financialmodelingprep.com/api/v3"
+FMP_BASE_URL      = "https://financialmodelingprep.com/stable"
 ROLLING_WINDOW    = 60        # days for OU estimation and Hurst
 KELLY_LOOKBACK    = 30        # last N closed trades used for Kelly
 KELLY_CAP         = 0.50      # half-Kelly safety cap
@@ -203,9 +203,10 @@ def _parse_fmp_response(data: list) -> pd.DataFrame:
 
 
 def fetch_ohlcv(ticker: str, start: date, end: date, api_key: str) -> pd.DataFrame:
+    # FMP stable endpoint (replaces deprecated v3 historical-price-full)
     url = (
-        f"{FMP_BASE_URL}/historical-price-full/{ticker}"
-        f"?from={start.isoformat()}&to={end.isoformat()}&apikey={api_key}"
+        f"{FMP_BASE_URL}/historical-price-eod/full"
+        f"?symbol={ticker}&from={start.isoformat()}&to={end.isoformat()}&apikey={api_key}"
     )
     console.print(f"  [cyan]Fetching {ticker}[/cyan] [{start} → {end}]...", end=" ")
 
@@ -229,16 +230,18 @@ def fetch_ohlcv(ticker: str, start: date, end: date, api_key: str) -> pd.DataFra
 
     payload = resp.json()
 
-    if isinstance(payload, dict) and "Error Message" in payload:
-        sys.exit(f"\nFMP API error for {ticker}: {payload['Error Message']}\n")
+    # Stable endpoint returns a list directly; error responses are dicts
+    if isinstance(payload, dict):
+        msg = payload.get("Error Message") or payload.get("message") or str(payload)
+        sys.exit(f"\nFMP API error for {ticker}: {msg}\n")
 
-    if not isinstance(payload, dict) or "historical" not in payload or not payload["historical"]:
+    if not isinstance(payload, list) or len(payload) == 0:
         sys.exit(
             f"\nNo price data returned for {ticker}.\n"
             "Check: (1) ticker symbol, (2) date range, (3) your FMP plan tier.\n"
         )
 
-    df = _parse_fmp_response(payload["historical"])
+    df = _parse_fmp_response(payload)
     console.print(f"[green]{len(df)} trading days[/green]")
 
     min_required = ROLLING_WINDOW + 1
